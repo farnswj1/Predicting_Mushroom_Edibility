@@ -1,0 +1,678 @@
+---
+title: "Predicting Mushroom Edibility"
+author: "Justin Farnsworth"
+date: "7/2/2020"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+options(scipen = 999)
+```
+
+# Summary
+In 1981, The Audubon Society Field Guide to North American Mushrooms created a data set consisting of 23 different types of mushrooms. These mushrooms were categorized into two groups based on their edibility: edible or poisonous. Mushrooms that were not verifiably edible or not safe to eat were considered to be poisonous. In this project, we predicted whether a mushroom is safe to eat.
+
+A brief exploration of the data was conducted, which found that odor was a good indication of a mushroom's edibility. Depending on the odor, the mushroom can be safe to eat, according to the data. For example, mushrooms with a foul, fishy, or spicy odor were not safe to eat. Meanwhile, mushrooms that smelled like almonds or anise were considered safe to eat. The only area of uncertainty here was when the mushrooms didn't have an odor.
+
+Another feature that is useful for determining edibility is the gill color. Mushrooms with green and buff gill colors were poisonous while those with orange and red gill colors were edible. Similarly, the stalk color above the mushroom's ring (annulus) can help determine edibility as well, with buff, cinnamon, and yellow being unsafe to eat whereas gray, orange, and red were safe.
+
+After splitting the data into a training set (80%) and a test set (20%), we used three models to predict mushroom edibility: logistic regeression, k-nearest neighbors, and a classification tree. We achieved an **accuracy of 100%** for each model! However, there were warnings presented when fitting the logistic regression model.
+
+The data set can be accessed here: 
+<https://www.kaggle.com/uciml/mushroom-classification>
+
+
+# Analysis
+A copy of the data set can be downloaded from this project's GitHub repository. (<https://github.com/farnswj1/Predicting_Mushroom_Edibility>)
+
+## Cleaning Up the Data Set
+
+```{r load_data_set, message = FALSE, warning = FALSE}
+# Required packages
+if(!require(tidyverse)) install.packages("tidyverse", repos = "http://cran.us.r-project.org")
+if(!require(caret)) install.packages("caret", repos = "http://cran.us.r-project.org")
+if(!require(ggthemes)) install.packages("ggthemes", repos = "http://cran.us.r-project.org")
+
+
+# Original Source: https://www.kaggle.com/uciml/mushroom-classification
+temp <- tempfile()
+download.file(
+  "https://raw.github.com/farnswj1/Predicting_Mushroom_Edibility/master/mushrooms.csv", 
+  temp
+)
+
+# Load the data set remove the tempfile
+data <- read.csv(temp)
+rm(temp)
+```
+
+There are `r dim(data)[1]` rows and `r dim(data)[2]` columns in the data set. When looking at the data set, the values for each column are unclear as each value is represented as one character.
+
+```{r head_data_before_cleanup}
+# Show first 10 rows of the data set before cleanup
+head(data, 10)
+```
+
+We can also see that there appears to be no missing values in the data set.
+
+```{r check_for_null_values}
+# Check for null values
+any(is.na(data))
+```
+
+Fortunately, the link to the data set on Kaggle (see <https://www.kaggle.com/uciml/mushroom-classification>) defines the values for each character. We cleaned up the data set so that the values are replaced with the proper descriptors.
+
+```{r clean_up_data_set, echo = FALSE}
+# Clean up edibility column
+data <- data %>% 
+  rename(edibility = class) %>% 
+  mutate(edibility = factor(ifelse(edibility == "e", "Edible", "Poisonous")))
+
+# Clean up cap shape column
+data <- data %>% 
+  mutate(
+    cap.shape = factor(
+      case_when(
+        .$cap.shape == "b" ~ "Bell",
+        .$cap.shape == "c" ~ "Conical",
+        .$cap.shape == "x" ~ "Convex",
+        .$cap.shape == "f" ~ "Flat",
+        .$cap.shape == "k" ~ "Knobbed",
+        .$cap.shape == "s" ~ "Sunken"
+      )
+    )
+  )
+
+# Clean up cap surface column
+data <- data %>% 
+  mutate(
+    cap.surface = factor(
+      case_when(
+        .$cap.surface == "f" ~ "Fibrous",
+        .$cap.surface == "g" ~ "Grooves",
+        .$cap.surface == "y" ~ "Scaly",
+        .$cap.surface == "s" ~ "Smooth"
+      )
+    )
+  )
+
+# Clean up cap surface column
+data <- data %>% 
+  mutate(
+    cap.color = factor(
+      case_when(
+        .$cap.color == "n" ~ "Brown",
+        .$cap.color == "b" ~ "Buff",
+        .$cap.color == "c" ~ "Cinnamon",
+        .$cap.color == "g" ~ "Gray",
+        .$cap.color == "r" ~ "Green",
+        .$cap.color == "p" ~ "Pink",
+        .$cap.color == "u" ~ "Purple",
+        .$cap.color == "e" ~ "Red",
+        .$cap.color == "w" ~ "White",
+        .$cap.color == "y" ~ "Yellow"
+      )
+    )
+  )
+
+# Clean up bruises column
+data <- data %>% 
+  mutate(bruises = factor(ifelse(bruises == "t", TRUE, FALSE)))
+
+# Clean up odor column
+data <- data %>% 
+  mutate(
+    odor = factor(
+      case_when(
+        .$odor == "a" ~ "Almond",
+        .$odor == "l" ~ "Anise",
+        .$odor == "c" ~ "Creosote",
+        .$odor == "y" ~ "Fishy",
+        .$odor == "f" ~ "Foul",
+        .$odor == "m" ~ "Musty",
+        .$odor == "n" ~ "None",
+        .$odor == "p" ~ "Pungent",
+        .$odor == "s" ~ "Spicy"
+      )
+    )
+  )
+
+# Clean up gill attachment column
+data <- data %>% 
+  mutate(
+    gill.attachment = factor(
+      case_when(
+        .$gill.attachment == "a" ~ "Attached",
+        .$gill.attachment == "d" ~ "Descending",
+        .$gill.attachment == "f" ~ "Free",
+        .$gill.attachment == "n" ~ "Notched"
+      )
+    )
+  )
+
+# Clean up gill spacing column
+data <- data %>% 
+  mutate(
+    gill.spacing = factor(
+      case_when(
+        .$gill.spacing == "c" ~ "Close",
+        .$gill.spacing == "w" ~ "Crowded",
+        .$gill.spacing == "d" ~ "Distant"
+      )
+    )
+  )
+
+# Clean up gill size column
+data <- data %>% 
+  mutate(gill.size = factor(ifelse(gill.size == "b", "Broad", "Narrow")))
+
+# Clean up gill color column
+data <- data %>% 
+  mutate(
+    gill.color = factor(
+      case_when(
+        .$gill.color == "k" ~ "Black",
+        .$gill.color == "n" ~ "Brown",
+        .$gill.color == "b" ~ "Buff",
+        .$gill.color == "h" ~ "Chocolate",
+        .$gill.color == "g" ~ "Gray",
+        .$gill.color == "r" ~ "Green",
+        .$gill.color == "o" ~ "Orange",
+        .$gill.color == "p" ~ "Pink",
+        .$gill.color == "u" ~ "Purple",
+        .$gill.color == "e" ~ "Red",
+        .$gill.color == "w" ~ "White",
+        .$gill.color == "y" ~ "Yellow"
+      )
+    )
+  )
+
+# Clean up stalk shape column
+data <- data %>% 
+  mutate(stalk.shape = factor(ifelse(stalk.shape == "e", "Enlarging", "Tapering")))
+
+# Clean up stalk root column
+data <- data %>% 
+  mutate(
+    stalk.root = factor(
+      case_when(
+        .$stalk.root == "b" ~ "Bulbous",
+        .$stalk.root == "c" ~ "Club",
+        .$stalk.root == "u" ~ "Cup",
+        .$stalk.root == "e" ~ "Equal",
+        .$stalk.root == "z" ~ "Rhizomorphs",
+        .$stalk.root == "r" ~ "Rooted",
+        .$stalk.root == "?" ~ "Missing"
+      )
+    )
+  )
+
+# Clean up stalk surface above ring column
+data <- data %>% 
+  mutate(
+    stalk.surface.above.ring = factor(
+      case_when(
+        .$stalk.surface.above.ring == "f" ~ "Fibrous",
+        .$stalk.surface.above.ring == "y" ~ "Scaly",
+        .$stalk.surface.above.ring == "k" ~ "Silky",
+        .$stalk.surface.above.ring == "s" ~ "Smooth"
+      )
+    )
+  )
+
+# Clean up stalk surface below ring column
+data <- data %>% 
+  mutate(
+    stalk.surface.below.ring = factor(
+      case_when(
+        .$stalk.surface.below.ring == "f" ~ "Fibrous",
+        .$stalk.surface.below.ring == "y" ~ "Scaly",
+        .$stalk.surface.below.ring == "k" ~ "Silky",
+        .$stalk.surface.below.ring == "s" ~ "Smooth"
+      )
+    )
+  )
+
+# Clean up stalk color above ring column
+data <- data %>% 
+  mutate(
+    stalk.color.above.ring = factor(
+      case_when(
+        .$stalk.color.above.ring == "n" ~ "Brown",
+        .$stalk.color.above.ring == "b" ~ "Buff",
+        .$stalk.color.above.ring == "c" ~ "Cinnamon",
+        .$stalk.color.above.ring == "g" ~ "Gray",
+        .$stalk.color.above.ring == "o" ~ "Orange",
+        .$stalk.color.above.ring == "p" ~ "Pink",
+        .$stalk.color.above.ring == "e" ~ "Red",
+        .$stalk.color.above.ring == "w" ~ "White",
+        .$stalk.color.above.ring == "y" ~ "Yellow"
+      )
+    )
+  )
+
+# Clean up stalk color below ring column
+data <- data %>% 
+  mutate(
+    stalk.color.below.ring = factor(
+      case_when(
+        .$stalk.color.below.ring == "n" ~ "Brown",
+        .$stalk.color.below.ring == "b" ~ "Buff",
+        .$stalk.color.below.ring == "c" ~ "Cinnamon",
+        .$stalk.color.below.ring == "g" ~ "Gray",
+        .$stalk.color.below.ring == "o" ~ "Orange",
+        .$stalk.color.below.ring == "p" ~ "Pink",
+        .$stalk.color.below.ring == "e" ~ "Red",
+        .$stalk.color.below.ring == "w" ~ "White",
+        .$stalk.color.below.ring == "y" ~ "Yellow"
+      )
+    )
+  )
+
+# Delete veil type column (only 1 unique value in the column)
+data <- select(data, -veil.type)
+
+# Clean up veil color column
+data <- data %>% 
+  mutate(
+    veil.color = factor(
+      case_when(
+        .$veil.color == "n" ~ "Brown",
+        .$veil.color == "o" ~ "Orange",
+        .$veil.color == "w" ~ "White",
+        .$veil.color == "y" ~ "Yellow"
+      )
+    )
+  )
+
+# Clean up ring number column
+data <- data %>% 
+  mutate(
+    ring.number = factor(
+      case_when(
+        .$ring.number == "n" ~ "None",
+        .$ring.number == "o" ~ "One",
+        .$ring.number == "t" ~ "Two"
+      )
+    )
+  )
+
+# Clean up ring type column
+data <- data %>% 
+  mutate(
+    ring.type = factor(
+      case_when(
+        .$ring.type == "c" ~ "Cotwebby",
+        .$ring.type == "e" ~ "Evanescent",
+        .$ring.type == "f" ~ "Flaring",
+        .$ring.type == "l" ~ "Large",
+        .$ring.type == "n" ~ "None",
+        .$ring.type == "p" ~ "Pendant",
+        .$ring.type == "s" ~ "Sheathing",
+        .$ring.type == "z" ~ "Zone"
+      )
+    )
+  )
+
+# Clean up spore print color column
+data <- data %>% 
+  mutate(
+    spore.print.color = factor(
+      case_when(
+        .$spore.print.color == "k" ~ "Black",
+        .$spore.print.color == "n" ~ "Brown",
+        .$spore.print.color == "b" ~ "Buff",
+        .$spore.print.color == "h" ~ "Chocolate",
+        .$spore.print.color == "r" ~ "Green",
+        .$spore.print.color == "o" ~ "Orange",
+        .$spore.print.color == "u" ~ "Purple",
+        .$spore.print.color == "w" ~ "White",
+        .$spore.print.color == "y" ~ "Yellow"
+      )
+    )
+  )
+
+# Clean up population column
+data <- data %>% 
+  mutate(
+    population = factor(
+      case_when(
+        .$population == "a" ~ "Abundant",
+        .$population == "c" ~ "Clustered",
+        .$population == "n" ~ "Numerous",
+        .$population == "s" ~ "Scattered",
+        .$population == "v" ~ "Several",
+        .$population == "y" ~ "Solitary"
+      )
+    )
+  )
+
+# Clean up habitat column
+data <- data %>% 
+  mutate(
+    habitat = factor(
+      case_when(
+        .$habitat == "g" ~ "Grasses",
+        .$habitat == "l" ~ "Leaves",
+        .$habitat == "m" ~ "Meadows",
+        .$habitat == "p" ~ "Paths",
+        .$habitat == "u" ~ "Urban",
+        .$habitat == "w" ~ "Waste",
+        .$habitat == "d" ~ "Woods"
+      )
+    )
+  )
+```
+
+After cleaning up the data set, we have the following:
+
+```{r head_data_after_cleanup}
+# Show first 10 rows of the data set after cleanup
+head(data, 10)
+```
+
+Note that the `veil.type` column was removed as it contained only one unique value. It would not be useful for predicting mushroom edibility later.
+
+
+## Exploring the Data Set
+The following R code was used to generate summary data of each column. Each column's summary contains the total number of mushrooms that have a specific value as well as the percentage of edible mushrooms with that column value. 
+
+```{r analyze_data_set}
+# Create a list with the totals and percentage of edible mushrooms for each group in the column
+tables <- map(colnames(data), function(column){
+  # Create a table of totals and percentage of edible mushrooms for each group
+  table <- data %>% 
+    group_by(data[, column]) %>%
+    summarize(total = n(), percentage = mean(edibility == "Edible") * 100) 
+    
+  # Clean up the column names
+  setNames(table, c(column, "total", "percentage"))
+})
+
+# Display the tables
+tables
+```
+
+We can observe the following:
+Mushrooms with sunken cap shapes appear safe to eat, while conical cap shapes were not. However, the prevalence of both groups are low.
+
+```{r plot_cap.shape, echo = FALSE}
+# Plot the percentage of edible mushrooms by cap shape
+tables[[2]] %>% 
+  mutate(cap.shape = reorder(cap.shape, percentage)) %>% 
+  ggplot(aes(cap.shape, percentage)) + 
+  geom_bar(stat = "identity", fill = "darkgreen") + 
+  ggtitle("Percentage of Edible Mushrooms By Cap Shape") + 
+  xlab("Cap Shape") + 
+  ylab("Percentage") + 
+  scale_y_continuous(labels = seq(0, 100, 10), breaks = seq(0, 100, 10)) + 
+  theme_calc()
+```
+
+Mushrooms with grooved cap surfaces were considered not safe to eat. However, the prevalence of this groups is low.
+
+Mushrooms with green and purple caps were safe to eat. However, the prevalence of both groups are low.
+
+```{r plot_cap.color, echo = FALSE}
+# Plot the percentage of edible mushrooms by cap color
+tables[[4]] %>% 
+  mutate(cap.color = reorder(cap.color, percentage)) %>% 
+  ggplot(aes(cap.color, percentage)) + 
+  geom_bar(stat = "identity", fill = "darkgreen") + 
+  ggtitle("Percentage of Edible Mushrooms By Cap Color") + 
+  xlab("Cap Color") + 
+  ylab("Percentage") + 
+  scale_y_continuous(labels = seq(0, 100, 10), breaks = seq(0, 100, 10)) + 
+  theme_calc()
+```
+
+Mushrooms with bruises were more likely to be safe to eat than those without bruises.
+
+Mushrooms that smelled like almond and anise were safe to eat. However, all other odors were not safe to eat. The exceptions were those that didn't have an odor, which were mostly safe to eat.
+
+Mushrooms with attached gills were mostly safe to eat. Those that had free gills were more likely to be poisonous.
+
+```{r plot_gill.attachment, echo = FALSE}
+# Plot the percentage of edible mushrooms by gill attachment
+tables[[7]] %>% 
+  mutate(gill.attachment = reorder(gill.attachment, percentage)) %>% 
+  ggplot(aes(gill.attachment, percentage)) + 
+  geom_bar(stat = "identity", fill = "darkgreen") + 
+  ggtitle("Percentage of Edible Mushrooms By Gill Attachment") + 
+  xlab("Gill Attachment") + 
+  ylab("Percentage") + 
+  scale_y_continuous(labels = seq(0, 100, 10), breaks = seq(0, 100, 10)) + 
+  theme_calc()
+```
+
+Mushrooms that were classified to have a crowded gill spacing were more likely to be edible than those that were classified as close.
+
+Mushrooms that were classified to have a broad gill size were more likely to be edible than those that were considered to have a narrow gill size. The latter is generally unsafe to eat, according to the data.
+
+Mushrooms with a buff or green gill color were not safe to eat. Meanwhile, those with orange or red gill colors were. Those with a purple gill color were mostly safe to eat.
+
+```{r plot_gill.color, echo = FALSE}
+# Plot the percentage of edible mushrooms by gill color
+tables[[10]] %>% 
+  mutate(gill.color = reorder(gill.color, percentage)) %>% 
+  ggplot(aes(gill.color, percentage)) + 
+  geom_bar(stat = "identity", fill = "darkgreen") + 
+  ggtitle("Percentage of Edible Mushrooms By Gill Color") + 
+  xlab("Gill Color") + 
+  ylab("Percentage") + 
+  scale_y_continuous(labels = seq(0, 100, 10), breaks = seq(0, 100, 10)) + 
+  theme_calc()
+```
+
+Mushrooms with a tapering stalk shape were more likely to be edible than those with an enlarging stalk shape, but not by much.
+
+Mushrooms with a rooted stalk were safe to eat. Those classified as having a club or "equal" stalk root were mostly safe to eat.
+
+```{r plot_stalk.root, echo = FALSE}
+# Plot the percentage of edible mushrooms by stalk root
+tables[[12]] %>% 
+  mutate(stalk.root = reorder(stalk.root, percentage)) %>% 
+  ggplot(aes(stalk.root, percentage)) + 
+  geom_bar(stat = "identity", fill = "darkgreen") + 
+  ggtitle("Percentage of Edible Mushrooms By Stalk Root") + 
+  xlab("Stalk Root") + 
+  ylab("Percentage") + 
+  scale_y_continuous(labels = seq(0, 100, 10), breaks = seq(0, 100, 10)) + 
+  theme_calc()
+```
+
+Mushrooms with a silky stalk surface are generally unsafe to eat. The others were more likely to be safe to eat, but not guaranteed.
+
+Mushrooms with a buff, cinnamon, or yellow stalk color were not safe to eat. Those with gray, orange, and red stalk colors were safe to eat.
+
+Mushrooms with a brown or orange veil color were safe to eat and those with a yellow veil color were not. However, the prevalence of these groups are low. Most mushrooms in the data set have a white veil color, while is approximately 50% likely to be safe to eat.
+
+Mushrooms with no rings were not safe to eat. Nearly 50% of the mushrooms with one ring were safe to eat and 88% of those with two rings were safe to eat. It appears that more rings suggest a better chance of being edible.
+
+```{r plot_ring.number, echo = FALSE}
+# Plot the percentage of edible mushrooms by number of rings
+tables[[18]] %>% 
+  mutate(ring.number = reorder(ring.number, percentage)) %>% 
+  ggplot(aes(ring.number, percentage)) + 
+  geom_bar(stat = "identity", fill = "darkgreen") + 
+  ggtitle("Percentage of Edible Mushrooms By Number of Rings") + 
+  xlab("Number of Rings") + 
+  ylab("Percentage") + 
+  scale_y_continuous(labels = seq(0, 100, 10), breaks = seq(0, 100, 10)) + 
+  theme_calc()
+```
+
+Mushrooms that were classified to have a large ring type were not safe to eat. Interestingly, there is a category called `None`, which is also unsafe to eat. Those with a flaring ring type were considered safe to eat, however this group has a low prevalence as well as `None`.
+
+```{r ring.type, echo = FALSE}
+# Plot the percentage of edible mushrooms by ring type
+tables[[19]] %>% 
+  mutate(ring.type = reorder(ring.type, percentage)) %>% 
+  ggplot(aes(ring.type, percentage)) + 
+  geom_bar(stat = "identity", fill = "darkgreen") + 
+  ggtitle("Percentage of Edible Mushrooms By Ring Type") + 
+  xlab("Ring Type") + 
+  ylab("Percentage") + 
+  scale_y_continuous(labels = seq(0, 100, 10), breaks = seq(0, 100, 10)) + 
+  theme_calc()
+```
+
+Mushrooms with a buff, orange, purple, and yellow spore print were safe to eat, while those with green spore prints were not safe to eat. All five of the mentioned categories have a low prevalence. Those with a chocolate spore print were generally unsafe to eat and those with a black or brown spore print were very likely to be safe to eat.
+
+Mushrooms that were categorized to be adundant and numerous were safe to eat.
+
+```{r plot_population, echo = FALSE}
+# Plot the percentage of edible mushrooms by population type
+tables[[21]] %>% 
+  mutate(population = reorder(population, percentage)) %>% 
+  ggplot(aes(population, percentage)) + 
+  geom_bar(stat = "identity", fill = "darkgreen") + 
+  ggtitle("Percentage of Edible Mushrooms By Population Type") + 
+  xlab("Population Type") + 
+  ylab("Percentage") + 
+  scale_y_continuous(labels = seq(0, 100, 10), breaks = seq(0, 100, 10)) + 
+  theme_calc()
+```
+
+Mushrooms found on paths are generally not safe to eat. However, those found in waste were safe to eat. The most prevalent group here were those from the woods, in which nearly 60% of them were safe to eat.
+
+```{r plot_habitat, echo = FALSE}
+# Plot the percentage of edible mushrooms by habitat
+tables[[22]] %>% 
+  mutate(habitat = reorder(habitat, percentage)) %>% 
+  ggplot(aes(habitat, percentage)) + 
+  geom_bar(stat = "identity", fill = "darkgreen") + 
+  ggtitle("Percentage of Edible Mushrooms By Habitat") + 
+  xlab("Habitat") + 
+  ylab("Percentage") + 
+  scale_y_continuous(labels = seq(0, 100, 10), breaks = seq(0, 100, 10)) + 
+  theme_calc()
+```
+
+
+# Models
+In this section, we used the features of the mushrooms to predict the mushroom's edibility. We used logistic regression, k-nearest neighbors, and a classification tree to make the predictions.
+
+
+## Training & Test Sets
+First, we split the data into a training set, which consisted of 80% of the data, and a test set, which consisted of the remaining 20%.
+
+```{r generate_train_and_test_sets}
+# Split the data set into a training set (80%) and a test set (20%)
+set.seed(2)
+test_index <- createDataPartition(data$edibility, times = 1, p = 0.2, list = FALSE)
+train_set <- data[-test_index,]
+test_set <- data[test_index,]
+rm(test_index)
+```
+
+To ensure that the prevalence of poisonous and edible mushrooms are approximately the same, we checked each set. We found that the prevalences are approximately the same.
+
+```{r check_prevalence_in_each_set}
+# Check the prevalence of edible mushrooms in each set
+mean(data$edibility == "Edible")
+mean(train_set$edibility == "Edible")
+mean(test_set$edibility == "Edible")
+```
+
+For the following models, the positive class was `Edible`. By predicting every mushroom to be edible, we would achieve an accuracy of `r mean(test_set$edibility == "Edible")`. This would be the baseline model. However, the goal was to improve the accuracy.
+
+
+## Logistic Regression
+The first model used was the logistic regression model. Surprisingly, we managed to achieve a 100% accuracy with this model.
+
+```{r glm, warning = FALSE}
+# Train the model
+set.seed(2)
+train_glm <- train(edibility ~ ., method = "glm", data = train_set)
+
+# Predict the outcomes
+y_hat_glm <- predict(train_glm, test_set)
+
+# Compute the results
+confusionMatrix(y_hat_glm, test_set$edibility)
+```
+
+
+## K-Nearest Neighbors
+The next model used was the k-nearest neighbors model. It also managed to achieve a 100% accuracy. However, this algorithm took the longest to complete.
+
+```{r knn}
+# Train the model
+set.seed(2)
+train_knn <- train(edibility ~ ., method = "knn", data = train_set, 
+                   tuneGrid = data.frame(k = 2:7))
+
+# Predict the outcomes
+y_hat_knn <- predict(train_knn, test_set)
+
+# Compute the results
+confusionMatrix(y_hat_knn, test_set$edibility)
+```
+
+We can see the accuracies among different values of k, where the most optimal value was `r train_knn$bestTune[1, "k"]`.
+
+```{r plot_knn, echo = FALSE}
+# Plot the model's accuracy for each complexity parameter
+plot(train_knn, main = "K-Nearest Neighbors Results", xlab = "Number of Neighbors")
+```
+
+
+## Classification Tree
+The final model used was the classification tree. This model was able to achieve a 100% accuracy as well.
+
+```{r ct}
+# Train the model
+set.seed(2)
+train_ct <- train(edibility ~ ., method = "rpart", data = train_set, 
+                  tuneGrid = data.frame(cp = seq(0, 0.001, 0.0001)))
+
+# Predict the outcomes
+y_hat_ct <- predict(train_ct, test_set)
+
+# Compute the results
+confusionMatrix(y_hat_ct, test_set$edibility)
+```
+
+The following graph shows the accuracies using different complexity parameters. According to the model, the most optimal paramater was `r train_ct$bestTune[,"cp"]`.
+
+```{r plot_ct, echo = FALSE}
+# Plot the model's accuracy for each complexity parameter
+plot(train_ct, main = "Classification Tree Results")
+```
+
+We can also observe the most important variables in the model. It appears that odor and stalk surface were among one of the most important variables. Having no odor was the most important variable.
+
+```{r ct_var_imp}
+# Show the most important variables according to the model
+varImp(train_ct)
+```
+
+
+# Results
+Here are the results from the three models above:
+
+```{r results, echo = FALSE}
+# Display the accuracies of all the models
+models = c("Logistic Regression", "K-Nearest Neighbors", "Classification Tree")
+
+accuracies <- c(
+  mean(y_hat_glm == test_set$edibility) * 100,
+  mean(y_hat_knn == test_set$edibility) * 100,
+  mean(y_hat_ct  == test_set$edibility) * 100
+)
+
+results <- data.frame(Model = models, Accuracy = accuracies)
+rm(models, accuracies)
+
+results
+```
+
+Interestingly, all 3 models achieved a **100% accuracy**.
+
+
+# Conclusion
+While there are several features that can be used to identify edible or poisonous mushrooms, odor seems to be the best indicator of edibility. Those with a scent can be identified as edible or poisonous while those with no odor were mostly safe to eat. Stalk color also seem to be a good indicator as well.
+
+Regarding the models, all three models perfectly predicted mushroom edibility. However, a limitation of the data set is that some of the column values were not as prevalent. For example, there were 4 mushrooms that had a conical cap shape, 16 with a purple cap color, 8 with a yellow stalk color above their ring, etc. Perhaps more data would've been beneficial as there may have been anomalies not captured by the data set.
